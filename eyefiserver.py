@@ -179,26 +179,15 @@ class EyeFiServer(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer):
     def stop(self):
         self.run = False
 
-# wrap EyeFiRequestHandler w/ Flickr API object handy
-def EyeFiRequestHandlerFactory(config, flickr):
+# wrap EyeFiRequestHandler
+def EyeFiRequestHandlerFactory(config):
 
     # This class is responsible for handling HTTP requests passed to it.
     # It implements the two most common HTTP methods, do_GET() and do_POST()
     class EyeFiRequestHandler(BaseHTTPRequestHandler):
 
         def __init__(self, *args, **kwargs):
-            self.flickr = flickr
             self.config = config
-
-            # set up uploader worker processes
-            if self.flickr is not None:
-                self.workers = []
-                self.worker_queues = []
-                for i in range(self.config.getint('EyeFiServer', 'flickr_concurrency')):
-                    q = multiprocessing.Queue()
-                    self.worker_queues.append(q)
-                    self.workers.append(multiprocessing.Process(target=self.flickr_upload, args=(q,)))
-                    self.workers[-1].start()
 
             BaseHTTPRequestHandler.__init__(self, *args, **kwargs)
 
@@ -212,31 +201,6 @@ def EyeFiRequestHandlerFactory(config, flickr):
                 if q.qsize() < shortest_q:
                     shortest_q_i = i
             self.worker_queues[shortest_q_i].put(target)
-
-        def flickr_upload(self, q):
-            while True:
-                target = q.get(True)
-                if target is None:
-                    break
-
-                success = True
-                try:
-                    self.flickr.upload(
-                        photo_file=target.get('path'),
-                        title=target.get('title', datetime.now().isoformat()),
-                        is_public=self.flickr.is_public,
-                        is_friend=self.flickr.is_friend,
-                        is_family=self.flickr.is_family
-                    )
-                except:
-                    success = False
-
-                if not success:
-                    target['attempts'] = target.get('attempts', 0) + 1
-                    if target['attempts'] < 5:
-                        q.put(target)
-                else:
-                    os.unlink(target.get('path'))
 
         def do_QUIT (self):
             eyeFiLogger.debug("Got StopServer request .. stopping server")
@@ -491,11 +455,6 @@ def EyeFiRequestHandlerFactory(config, flickr):
                 f = imageTarfile.extract(member, uploadDir)
                 imagePath = os.path.join(uploadDir, member.name)
                 os.utime(imagePath, (member.mtime + timeoffset, member.mtime + timeoffset))
-
-                # if flickr is enabled, add image to queue
-                if self.flickr is not None:
-                    eyeFiLogger.debug("queueing %s for upload" % imagePath)
-                    self.queue_upload({"title": member.name, "path": imagePath})
 
                 if geotag_enable>0 and member.name.lower().endswith(".log"):
                     eyeFiLogger.debug("Processing LOG file " + imagePath)
@@ -776,41 +735,11 @@ def runEyeFi():
     config = ConfigParser.SafeConfigParser(defaults=DEFAULTS)
     config.read(configfile)
 
-    # check whether flickr needs to be set up
-    if config.getint('EyeFiServer', 'flickr_enable') > 0:
-        if len(config.get('EyeFiServer', 'flickr_key')) and len(config.get('EyeFiServer', 'flickr_secret')):
-            eyeFiLogger.info('Flickr uploading enabled')
-            import flickr_api
-            flickr_api.set_keys(config.get('EyeFiServer', 'flickr_key'), config.get('EyeFiServer', 'flickr_secret'))
-            flickr_api.is_public = int(config.get('EyeFiServer','flickr_public'))
-            flickr_api.is_family = int(config.get('EyeFiServer','flickr_family'))
-            flickr_api.is_friend = int(config.get('EyeFiServer','flickr_friend'))
-
-            try:
-                a = flickr_api.auth.AuthHandler.load('./flickr.verifier')
-                flickr_api.set_auth_handler(a)
-                eyeFiLogger.info('loaded Flickr credentials')
-            except:
-                a = flickr_api.auth.AuthHandler()
-                url = a.get_authorization_url('write')
-                print 'Please visit this URL and grant access:'
-                print url
-                a.set_verifier(raw_input('Enter the value of <oauth_verifier>: '))
-                a.save('/tmp/src/flickr.verifier')
-                print 'Thanks! This process will now exit. You should then rebuild the Docker image according to the README instructions.'
-                sys.exit(0)
-        else:
-            eyeFiLogger.error('Flickr upload enabled, but flickr_key/flickr_secret not set. Exiting...')
-            sys.exit(1)
-    else:
-        flickr_api = None
-
-
     server_address = (config.get('EyeFiServer','host_name'), config.getint('EyeFiServer','host_port'))
 
     # Create an instance of an HTTP server. Requests will be handled
     # by the class EyeFiRequestHandler
-    eyeFiServer = EyeFiServer(config, server_address, EyeFiRequestHandlerFactory(config, flickr_api))
+    eyeFiServer = EyeFiServer(config, server_address, EyeFiRequestHandlerFactory(config))
     eyeFiLogger.info("Eye-Fi server started listening on port " + str(server_address[1]))
     eyeFiServer.serve_forever()
 
