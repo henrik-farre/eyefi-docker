@@ -24,9 +24,7 @@ RUN mkdir -p /upload \
 ADD eyefiserver.py .
 
 ARG VCS_REF="local"
-ARG VCS_URL="none"
-ARG VERSION="dev"
 LABEL org.label-schema.vcs-ref="$VCS_REF" \
-      org.label-schema.vcs-url="$VCS_URL" \
-      org.label-schema.version="$VERSION" \
+      org.label-schema.vcs-url="https://github.com/henrik-farre/eyefi-docker.git" \
+      org.label-schema.version="0.1-1" \
       maintainer="henrik@rockhopper.dk"
