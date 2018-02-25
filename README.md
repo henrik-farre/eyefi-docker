@@ -2,7 +2,7 @@
 
 This project is a fork of [eyefi-docker](https://github.com/sbma44/eyefi-docker) which again is a fork of [eyefiserver2](https://github.com/dgrant/eyefiserver2).
 
-All the hard work was done by [sbma44]((https://github.com/sbma44) and [dgrant](https://github.com/dgrant/)
+All the hard work was done by [sbma44](https://github.com/sbma44) and [dgrant](https://github.com/dgrant/)
 
 This projects removes all flickr code and the need for a config file, it uses environment vars instead, so it can be configured using docker-compose
 
