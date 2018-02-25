@@ -61,7 +61,6 @@ import signal
 
 #pike
 from datetime import datetime
-import ConfigParser
 
 import math
 
@@ -418,9 +417,9 @@ def EyeFiRequestHandlerFactory(config):
 
             imageTarfileName = handler.extractedElements["filename"]
 
-            geotag_enable = int(self.server.config.getint('EyeFiServer','geotag_enable'))
+            geotag_enable = int(self.server.config['geotag_enable'])
             if geotag_enable:
-                geotag_accuracy = int(self.server.config.get('EyeFiServer','geotag_accuracy'))
+                geotag_accuracy = int(self.server.config['geotag_accuracy'])
 
             imageTarPath = os.path.join(tempfile.gettempdir(), imageTarfileName)
             eyeFiLogger.debug("Generated path %s" % imageTarPath)
@@ -450,7 +449,7 @@ def EyeFiRequestHandlerFactory(config):
                     timeoffset = time.timezone
                 timezone = timeoffset / 60 / 60 * -1
                 imageDate = datetime.fromtimestamp(member.mtime) - timedelta(hours = timezone)
-                uploadDir = imageDate.strftime(self.server.config.get('EyeFiServer','upload_dir'))
+                uploadDir = '/upload'
 
                 f = imageTarfile.extract(member, uploadDir)
                 imagePath = os.path.join(uploadDir, member.name)
@@ -521,7 +520,7 @@ def EyeFiRequestHandlerFactory(config):
                 return shottime, aps
 
         def getphotoaps(self, time, aps):
-            geotag_lag = int(self.server.config.get('EyeFiServer','geotag_lag'))
+            geotag_lag = int(self.server.config['geotag_lag'])
             newaps = []
             for mac in aps:
                 lag = min([(abs(ap["time"] - time), ap["pwr"]) for ap in aps[mac]], key = lambda a: a[0])
@@ -625,21 +624,6 @@ def EyeFiRequestHandlerFactory(config):
 
             return doc.toxml(encoding = "UTF-8")
 
-        def _get_mac_uploadkey_dict(self):
-            macs = {}
-            upload_keys = {}
-            for key, value in self.server.config.items('EyeFiServer'):
-                if key.find('upload_key_') == 0:
-                    index = int(key[11:])
-                    upload_keys[index] = value
-                elif key.find('mac_') == 0:
-                    index = int(key[4:])
-                    macs[index] = value
-            d = {}
-            for key in macs.keys():
-                d[macs[key]] = upload_keys[key]
-            return d
-
         def startSession(self, postData):
             eyeFiLogger.debug("Delegating the XML parsing of startSession postData to EyeFiContentHandler()")
             handler = EyeFiContentHandler()
@@ -648,9 +632,12 @@ def EyeFiRequestHandlerFactory(config):
             eyeFiLogger.debug("Extracted elements: " + str(handler.extractedElements))
 
             # Retrieve it from C:\Documents and Settings\<User>\Application Data\Eye-Fi\Settings.xml
-            mac_to_uploadkey_map = self._get_mac_uploadkey_dict()
             mac = handler.extractedElements["macaddress"]
-            upload_key = mac_to_uploadkey_map[mac]
+
+            if mac != self.server.config['mac']:
+                eyeFiLogger.error("MAC address does not match configured '" + mac + "' / '" + self.server.config['mac'] + "'")
+
+            upload_key = self.server.config['upload_key']
             eyeFiLogger.debug("Got MAC address of " + mac)
             eyeFiLogger.debug("Setting Eye-Fi upload key to " + upload_key)
 
@@ -715,27 +702,21 @@ def EyeFiRequestHandlerFactory(config):
     return EyeFiRequestHandler
 
 def stopEyeFi():
-    configfile = sys.argv[2]
-    eyeFiLogger.info("Reading config " + configfile)
-
-    config = ConfigParser.SafeConfigParser(defaults = DEFAULTS)
-    config.read(configfile)
-
-    port = config.getint('EyeFiServer','host_port')
-
     """send QUIT request to http server running on localhost:<port>"""
-    conn = httplib.HTTPConnection("127.0.0.1:%d" % port)
+    conn = httplib.HTTPConnection("127.0.0.1:%d" % 59278)
     conn.request("QUIT", "/")
     conn.getresponse()
 
 def runEyeFi():
-    configfile = 'eyefiserver.conf'
-    eyeFiLogger.info("Reading config " + configfile)
+    config = dict()
+    # Hardcoded to only support one key, just spin another container up for another card
+    config['mac'] = os.environ.get('MAC')
+    config['upload_key'] = os.environ.get('UPLOAD_KEY')
+    config['geotag_enable'] = os.environ.get('GEOTAG_ENABLE')
+    config['geotag_lag'] = os.environ.get('GEOTAG_LAG')
+    config['geotag_accuracy'] = os.environ.get('GEOTAG_ACCURACY')
 
-    config = ConfigParser.SafeConfigParser(defaults=DEFAULTS)
-    config.read(configfile)
-
-    server_address = (config.get('EyeFiServer','host_name'), config.getint('EyeFiServer','host_port'))
+    server_address = ('', 59278)
 
     # Create an instance of an HTTP server. Requests will be handled
     # by the class EyeFiRequestHandler
